@@ -1,5 +1,7 @@
 using System;
-using System.Web.Mvc;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using ContosoUniversity.Services;
 using ContosoUniversity.Models;
 using ContosoUniversity.Data;
@@ -8,40 +10,42 @@ namespace ContosoUniversity.Controllers
 {
     public abstract class BaseController : Controller
     {
-        protected SchoolContext db;
-        protected NotificationService notificationService = new NotificationService();
+        protected readonly SchoolContext _db;
+        protected readonly INotificationService _notificationService;
+        protected readonly ILogger _logger;
 
-        public BaseController()
+        public BaseController(
+            SchoolContext db,
+            INotificationService notificationService,
+            ILogger logger)
         {
-            db = SchoolContextFactory.Create();
+            _db = db;
+            _notificationService = notificationService;
+            _logger = logger;
         }
 
-        protected void SendEntityNotification(string entityType, string entityId, EntityOperation operation)
+        protected async Task SendEntityNotificationAsync(string entityType, string entityId, EntityOperation operation)
         {
-            SendEntityNotification(entityType, entityId, null, operation);
+            await SendEntityNotificationAsync(entityType, entityId, null, operation);
         }
 
-        protected void SendEntityNotification(string entityType, string entityId, string entityDisplayName, EntityOperation operation)
+        protected async Task SendEntityNotificationAsync(string entityType, string entityId, string? entityDisplayName, EntityOperation operation)
         {
             try
             {
-                var userName = "System"; // No authentication, use System as default user
-                notificationService.SendNotification(entityType, entityId, entityDisplayName, operation, userName);
+                var userName = User?.Identity?.Name ?? "System";
+                await _notificationService.SendNotificationAsync(entityType, entityId, entityDisplayName, operation, userName);
             }
             catch (Exception ex)
             {
                 // Log the error but don't break the main operation
-                System.Diagnostics.Debug.WriteLine($"Failed to send notification: {ex.Message}");
+                _logger.LogError(ex, "Failed to send notification for {EntityType} {EntityId}", entityType, entityId);
             }
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
-            {
-                db?.Dispose();
-                notificationService?.Dispose();
-            }
+            // DbContext is disposed by the DI container
             base.Dispose(disposing);
         }
     }

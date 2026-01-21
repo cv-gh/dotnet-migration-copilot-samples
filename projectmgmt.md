@@ -524,8 +524,15 @@ ContosoUniversity/
 **Commits:** [Pending]
 
 #### Task 2.3.2: Update Controllers for ASP.NET Core
-**Status:** Pending
+**Status:** In Progress ⏳
 **Description:** Update all controllers to use ASP.NET Core base classes and patterns.
+
+**Actions Completed:**
+- ✅ Updated BaseController to use dependency injection
+- ✅ Converted BaseController to async patterns
+- ✅ Updated HomeController for ASP.NET Core
+- ✅ Removed obsolete files (App_Start, Global.asax, AssemblyInfo.cs)
+- 🔄 Remaining controllers need updates: StudentsController, CoursesController, InstructorsController, DepartmentsController, NotificationsController
 
 **Commits:** [Pending]
 
