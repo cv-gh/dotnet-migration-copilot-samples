@@ -1,43 +1,84 @@
 using System;
-using System.Messaging;
-using System.Configuration;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Azure.Messaging.ServiceBus;
 using ContosoUniversity.Models;
-using Newtonsoft.Json;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace ContosoUniversity.Services
 {
-    public class NotificationService
+    public class NotificationService : INotificationService, IDisposable
     {
-        private readonly string _queuePath;
-        private readonly MessageQueue _queue;
+        private readonly ServiceBusClient? _client;
+        private readonly ServiceBusSender? _sender;
+        private readonly ServiceBusReceiver? _receiver;
+        private readonly string _queueName;
+        private readonly ILogger<NotificationService> _logger;
+        private readonly bool _isConfigured;
 
-        public NotificationService()
+        public NotificationService(IConfiguration configuration, ILogger<NotificationService> logger)
         {
-            // Get queue path from configuration or use default
-            _queuePath = ConfigurationManager.AppSettings["NotificationQueuePath"] ?? @".\Private$\ContosoUniversityNotifications";
+            _logger = logger;
+            _queueName = configuration["Azure:ServiceBus:QueueName"] ?? "contoso-notifications";
             
-            // Ensure the queue exists
-            if (!MessageQueue.Exists(_queuePath))
+            var serviceBusConnectionString = configuration["Azure:ServiceBus:ConnectionString"];
+            var serviceBusNamespace = configuration["Azure:ServiceBus:Namespace"];
+            
+            // Check if Service Bus is configured
+            _isConfigured = !string.IsNullOrEmpty(serviceBusConnectionString) || 
+                           !string.IsNullOrEmpty(serviceBusNamespace);
+            
+            if (_isConfigured)
             {
-                _queue = MessageQueue.Create(_queuePath);
-                _queue.SetPermissions("Everyone", MessageQueueAccessRights.FullControl);
+                try
+                {
+                    // Create Service Bus client
+                    if (!string.IsNullOrEmpty(serviceBusConnectionString))
+                    {
+                        _client = new ServiceBusClient(serviceBusConnectionString);
+                    }
+                    else if (!string.IsNullOrEmpty(serviceBusNamespace))
+                    {
+                        // Use Managed Identity for Azure
+                        _client = new ServiceBusClient($"{serviceBusNamespace}.servicebus.windows.net", 
+                            new Azure.Identity.DefaultAzureCredential());
+                    }
+
+                    if (_client != null)
+                    {
+                        _sender = _client.CreateSender(_queueName);
+                        _receiver = _client.CreateReceiver(_queueName);
+                        _logger.LogInformation("Azure Service Bus notification service initialized");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to initialize Azure Service Bus. Notifications will be disabled.");
+                    _isConfigured = false;
+                }
             }
             else
             {
-                _queue = new MessageQueue(_queuePath);
+                _logger.LogInformation("Azure Service Bus not configured. Notifications will be disabled.");
             }
-            
-            // Configure queue formatter
-            _queue.Formatter = new XmlMessageFormatter(new Type[] { typeof(string) });
         }
 
-        public void SendNotification(string entityType, string entityId, EntityOperation operation, string userName = null)
+        public async Task SendNotificationAsync(string entityType, string entityId, EntityOperation operation, string? userName = null)
         {
-            SendNotification(entityType, entityId, null, operation, userName);
+            await SendNotificationAsync(entityType, entityId, null, operation, userName);
         }
 
-        public void SendNotification(string entityType, string entityId, string entityDisplayName, EntityOperation operation, string userName = null)
+        public async Task SendNotificationAsync(string entityType, string entityId, string? entityDisplayName, 
+            EntityOperation operation, string? userName = null)
         {
+            if (!_isConfigured || _sender == null)
+            {
+                _logger.LogDebug("Service Bus not configured. Skipping notification for {EntityType} {EntityId}", 
+                    entityType, entityId);
+                return;
+            }
+
             try
             {
                 var notification = new Notification
@@ -46,75 +87,84 @@ namespace ContosoUniversity.Services
                     EntityId = entityId,
                     Operation = operation.ToString(),
                     Message = GenerateMessage(entityType, entityId, entityDisplayName, operation),
-                    CreatedAt = DateTime.Now,
+                    CreatedAt = DateTime.UtcNow,
                     CreatedBy = userName ?? "System",
                     IsRead = false
                 };
 
-                var jsonMessage = JsonConvert.SerializeObject(notification);
-                var message = new Message(jsonMessage)
+                var jsonMessage = JsonSerializer.Serialize(notification);
+                var message = new ServiceBusMessage(jsonMessage)
                 {
-                    Label = $"{entityType} {operation}",
-                    Priority = MessagePriority.Normal
+                    Subject = $"{entityType} {operation}",
+                    ContentType = "application/json"
                 };
 
-                _queue.Send(message);
+                await _sender.SendMessageAsync(message);
+                _logger.LogInformation("Notification sent for {EntityType} {EntityId}", entityType, entityId);
             }
             catch (Exception ex)
             {
-                // Log error but don't break the main operation
-                System.Diagnostics.Debug.WriteLine($"Failed to send notification: {ex.Message}");
+                _logger.LogError(ex, "Failed to send notification for {EntityType} {EntityId}", entityType, entityId);
             }
         }
 
-        public Notification ReceiveNotification()
+        public async Task<Notification?> ReceiveNotificationAsync()
         {
+            if (!_isConfigured || _receiver == null)
+            {
+                return null;
+            }
+
             try
             {
-                var message = _queue.Receive(TimeSpan.FromSeconds(1));
-                var jsonContent = message.Body.ToString();
-                return JsonConvert.DeserializeObject<Notification>(jsonContent);
-            }
-            catch (MessageQueueException ex) when (ex.MessageQueueErrorCode == MessageQueueErrorCode.IOTimeout)
-            {
-                // No messages available
-                return null;
+                var message = await _receiver.ReceiveMessageAsync(TimeSpan.FromSeconds(1));
+                if (message != null)
+                {
+                    var jsonContent = message.Body.ToString();
+                    var notification = JsonSerializer.Deserialize<Notification>(jsonContent);
+                    
+                    // Complete the message to remove it from the queue
+                    await _receiver.CompleteMessageAsync(message);
+                    
+                    return notification;
+                }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to receive notification: {ex.Message}");
-                return null;
+                _logger.LogError(ex, "Failed to receive notification");
             }
+
+            return null;
         }
 
-        public void MarkAsRead(int notificationId)
-        {
-            // In a real implementation, you might want to store notifications in database as well
-            // for persistence and tracking read status
-        }
-
-        private string GenerateMessage(string entityType, string entityId, string entityDisplayName, EntityOperation operation)
+        private string GenerateMessage(string entityType, string entityId, string? entityDisplayName, 
+            EntityOperation operation)
         {
             var displayText = !string.IsNullOrWhiteSpace(entityDisplayName) 
                 ? $"{entityType} '{entityDisplayName}'" 
                 : $"{entityType} (ID: {entityId})";
 
-            switch (operation)
+            return operation switch
             {
-                case EntityOperation.CREATE:
-                    return $"New {displayText} has been created";
-                case EntityOperation.UPDATE:
-                    return $"{displayText} has been updated";
-                case EntityOperation.DELETE:
-                    return $"{displayText} has been deleted";
-                default:
-                    return $"{displayText} operation: {operation}";
-            }
+                EntityOperation.CREATE => $"New {displayText} has been created",
+                EntityOperation.UPDATE => $"{displayText} has been updated",
+                EntityOperation.DELETE => $"{displayText} has been deleted",
+                _ => $"{displayText} operation: {operation}"
+            };
         }
 
         public void Dispose()
         {
-            _queue?.Dispose();
+            try
+            {
+                _sender?.DisposeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+                _receiver?.DisposeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+                _client?.DisposeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing notification service");
+            }
         }
     }
 }

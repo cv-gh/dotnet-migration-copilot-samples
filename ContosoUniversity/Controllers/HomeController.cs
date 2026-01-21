@@ -1,46 +1,58 @@
-using System.Collections.Generic;
-using System.Linq;
-using System.Web.Mvc;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using ContosoUniversity.Data;
+using ContosoUniversity.Models;
 using ContosoUniversity.Models.SchoolViewModels;
+using ContosoUniversity.Services;
+using System.Linq;
+using System.Diagnostics;
 
 namespace ContosoUniversity.Controllers
 {
     public class HomeController : BaseController
     {
-        public ActionResult Index()
+        public HomeController(
+            SchoolContext db,
+            INotificationService notificationService,
+            ILogger<HomeController> logger)
+            : base(db, notificationService, logger)
+        {
+        }
+
+        public IActionResult Index()
         {
             return View();
         }
 
-        public ActionResult About()
+        public async Task<IActionResult> About()
         {
             IQueryable<EnrollmentDateGroup> data = 
-                from student in db.Students
+                from student in _db.Students
                 group student by student.EnrollmentDate into dateGroup
                 select new EnrollmentDateGroup()
                 {
                     EnrollmentDate = dateGroup.Key,
                     StudentCount = dateGroup.Count()
                 };
-            return View(data.ToList());
+            return View(await data.ToListAsync());
         }
 
-        public ActionResult Contact()
+        public IActionResult Contact()
         {
-            ViewBag.Message = "Your contact page.";
-
+            ViewData["Message"] = "Your contact page.";
             return View();
         }
 
-        public ActionResult Error()
+        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
+        public IActionResult Error()
         {
-            return View();
+            return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
         }
 
-        public ActionResult Unauthorized()
+        public new IActionResult Unauthorized()
         {
-            ViewBag.Message = "You don't have permission to access this resource.";
+            ViewData["Message"] = "You don't have permission to access this resource.";
             return View();
         }
     }
