@@ -25,7 +25,7 @@ namespace ContosoUniversity.Controllers
             return View();
         }
 
-        public IActionResult About()
+        public async Task<IActionResult> About()
         {
             IQueryable<EnrollmentDateGroup> data = 
                 from student in _db.Students
@@ -35,7 +35,7 @@ namespace ContosoUniversity.Controllers
                     EnrollmentDate = dateGroup.Key,
                     StudentCount = dateGroup.Count()
                 };
-            return View(data.ToList());
+            return View(await data.ToListAsync());
         }
 
         public IActionResult Contact()

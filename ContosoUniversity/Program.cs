@@ -24,9 +24,18 @@ if (builder.Environment.IsProduction())
     var keyVaultEndpoint = builder.Configuration["KeyVault:Endpoint"];
     if (!string.IsNullOrEmpty(keyVaultEndpoint))
     {
-        builder.Configuration.AddAzureKeyVault(
-            new Uri(keyVaultEndpoint),
-            new DefaultAzureCredential());
+        try
+        {
+            builder.Configuration.AddAzureKeyVault(
+                new Uri(keyVaultEndpoint),
+                new DefaultAzureCredential());
+        }
+        catch (Exception ex)
+        {
+            // Log the error but allow the application to continue with default configuration
+            var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
+            logger.LogWarning(ex, "Failed to load Azure Key Vault configuration. Using default configuration.");
+        }
     }
 }
 

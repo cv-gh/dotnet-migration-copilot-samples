@@ -24,12 +24,12 @@ namespace ContosoUniversity.Controllers
             _logger = logger;
         }
 
-        protected async Task SendEntityNotificationAsync(string entityType, string entityId, EntityOperation operation)
+        protected async Task SendEntityNotificationAsync(string entityType, string entityId, EntityOperation operation, CancellationToken cancellationToken = default)
         {
-            await SendEntityNotificationAsync(entityType, entityId, null, operation);
+            await SendEntityNotificationAsync(entityType, entityId, null, operation, cancellationToken);
         }
 
-        protected async Task SendEntityNotificationAsync(string entityType, string entityId, string? entityDisplayName, EntityOperation operation)
+        protected async Task SendEntityNotificationAsync(string entityType, string entityId, string? entityDisplayName, EntityOperation operation, CancellationToken cancellationToken = default)
         {
             try
             {
