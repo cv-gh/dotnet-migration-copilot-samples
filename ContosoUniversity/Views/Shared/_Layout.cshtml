@@ -15,7 +15,7 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">@Html.ActionLink("Home", "Index", "Home", null, new { @class = "nav-link" })</li>
-                    <li class="nav-item">@Html.ActionLink("About", "Index", "Home", null, new { @class = "nav-link" })</li>
+                    <li class="nav-item">@Html.ActionLink("About", "About", "Home", null, new { @class = "nav-link" })</li>
                     <li class="nav-item">@Html.ActionLink("Students", "Index", "Students", null, new { @class = "nav-link" })</li>
                     <li class="nav-item">@Html.ActionLink("Courses", "Index", "Courses", null, new { @class = "nav-link" })</li>
                     <li class="nav-item">@Html.ActionLink("Instructors", "Index", "Instructors", null, new { @class = "nav-link" })</li>
@@ -36,6 +36,6 @@
     <script src="~/Scripts/jquery-3.4.1.js"></script>
     <script src="~/Scripts/bootstrap.js"></script>
     <script src="~/Scripts/notifications.js"></script>
-    @await RenderSectionAsync("scripts", required: false)
+    @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

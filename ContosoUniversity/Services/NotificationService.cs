@@ -155,9 +155,16 @@ namespace ContosoUniversity.Services
 
         public void Dispose()
         {
-            _sender?.DisposeAsync().AsTask().Wait();
-            _receiver?.DisposeAsync().AsTask().Wait();
-            _client?.DisposeAsync().AsTask().Wait();
+            try
+            {
+                _sender?.DisposeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+                _receiver?.DisposeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+                _client?.DisposeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing notification service");
+            }
         }
     }
 }

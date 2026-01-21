@@ -15,8 +15,8 @@ builder.Services.AddDbContext<SchoolContext>(options =>
         sqlOptions => sqlOptions.EnableRetryOnFailure()));
 
 // Register services
-builder.Services.AddScoped<INotificationService, ContosoUniversity.Services.NotificationService>();
-builder.Services.AddScoped<ILoggingService, ContosoUniversity.Services.LoggingService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<ILoggingService, LoggingService>();
 
 // Add Azure Key Vault configuration (if running in Azure)
 if (builder.Environment.IsProduction())
