@@ -1,38 +1,49 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using System.Linq;
-using System.Net;
-using System.Web.Mvc;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.Extensions.Logging;
 using ContosoUniversity.Data;
 using ContosoUniversity.Models;
 using ContosoUniversity.Models.SchoolViewModels;
+using ContosoUniversity.Services;
 
 namespace ContosoUniversity.Controllers
 {
     public class InstructorsController : BaseController
     {
+        public InstructorsController(
+            SchoolContext db,
+            INotificationService notificationService,
+            ILogger<InstructorsController> logger)
+            : base(db, notificationService, logger)
+        {
+        }
         // GET: Instructors - All roles can view
-        public ActionResult Index(int? id, int? courseID)
+        public async Task<IActionResult> Index(int? id, int? courseID)
         {
             var viewModel = new InstructorIndexData();
-            viewModel.Instructors = db.Instructors
+            viewModel.Instructors = await _db.Instructors
                 .Include(i => i.OfficeAssignment)
                 .Include(i => i.CourseAssignments)
                     .ThenInclude(c => c.Course)
                         .ThenInclude(d => d.Department)
-                .OrderBy(i => i.LastName);
+                .OrderBy(i => i.LastName)
+                .ToListAsync();
 
             if (id != null)
             {
-                ViewBag.InstructorID = id.Value;
+                ViewData["InstructorID"] = id.Value;
                 viewModel.Courses = viewModel.Instructors.Where(
                     i => i.ID == id.Value).Single().CourseAssignments.Select(s => s.Course);
             }
 
             if (courseID != null)
             {
-                ViewBag.CourseID = courseID.Value;
+                ViewData["CourseID"] = courseID.Value;
                 viewModel.Enrollments = viewModel.Courses.Where(
                     x => x.CourseID == courseID).Single().Enrollments;
             }
@@ -41,22 +52,22 @@ namespace ContosoUniversity.Controllers
         }
 
         // GET: Instructors/Details/5 - All roles can view details
-        public ActionResult Details(int? id)
+        public async Task<IActionResult> Details(int? id)
         {
             if (id == null)
             {
-                return new HttpStatusCodeResult(HttpStatusCode.BadRequest);
+                return BadRequest();
             }
-            Instructor instructor = db.Instructors.Find(id);
+            Instructor instructor = await _db.Instructors.FindAsync(id);
             if (instructor == null)
             {
-                return HttpNotFound();
+                return NotFound();
             }
             return View(instructor);
         }
 
         // GET: Instructors/Create
-        public ActionResult Create()
+        public IActionResult Create()
         {
             var instructor = new Instructor();
             instructor.CourseAssignments = new List<CourseAssignment>();
@@ -67,7 +78,7 @@ namespace ContosoUniversity.Controllers
         // POST: Instructors/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public ActionResult Create([Bind(Include = "LastName,FirstMidName,HireDate,OfficeAssignment")] Instructor instructor, string[] selectedCourses)
+        public async Task<IActionResult> Create([Bind("LastName,FirstMidName,HireDate,OfficeAssignment")] Instructor instructor, string[] selectedCourses)
         {
             if (selectedCourses != null)
             {
@@ -80,11 +91,11 @@ namespace ContosoUniversity.Controllers
             }
             if (ModelState.IsValid)
             {
-                db.Instructors.Add(instructor);
-                db.SaveChanges();
+                _db.Instructors.Add(instructor);
+                await _db.SaveChangesAsync();
                 
                 // Send notification for instructor creation
-                SendEntityNotification("Instructor", instructor.ID.ToString(), EntityOperation.CREATE);
+                await SendEntityNotificationAsync("Instructor", instructor.ID.ToString(), EntityOperation.CREATE);
                 
                 return RedirectToAction("Index");
             }
@@ -93,29 +104,29 @@ namespace ContosoUniversity.Controllers
         }
 
         // GET: Instructors/Edit/5
-        public ActionResult Edit(int? id)
+        public async Task<IActionResult> Edit(int? id)
         {
             if (id == null)
             {
-                return new HttpStatusCodeResult(HttpStatusCode.BadRequest);
+                return BadRequest();
             }
-            Instructor instructor = db.Instructors
+            Instructor instructor = await _db.Instructors
                 .Include(i => i.OfficeAssignment)
                 .Include(i => i.CourseAssignments)
                     .ThenInclude(c => c.Course)
                 .Where(i => i.ID == id)
-                .Single();
+                .SingleAsync();
             PopulateAssignedCourseData(instructor);
             if (instructor == null)
             {
-                return HttpNotFound();
+                return NotFound();
             }
             return View(instructor);
         }
 
         private void PopulateAssignedCourseData(Instructor instructor)
         {
-            var allCourses = db.Courses;
+            var allCourses = _db.Courses;
             var instructorCourses = new HashSet<int>(instructor.CourseAssignments.Select(c => c.CourseID));
             var viewModel = new List<AssignedCourseData>();
             foreach (var course in allCourses)
@@ -127,41 +138,41 @@ namespace ContosoUniversity.Controllers
                     Assigned = instructorCourses.Contains(course.CourseID)
                 });
             }
-            ViewBag.Courses = viewModel;
+            ViewData["Courses"] = viewModel;
         }
 
         // POST: Instructors/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public ActionResult Edit(int? id, string[] selectedCourses)
+        public async Task<IActionResult> Edit(int? id, string[] selectedCourses)
         {
             if (id == null)
             {
-                return new HttpStatusCodeResult(HttpStatusCode.BadRequest);
+                return BadRequest();
             }
-            var instructorToUpdate = db.Instructors
+            var instructorToUpdate = await _db.Instructors
                .Include(i => i.OfficeAssignment)
                .Include(i => i.CourseAssignments)
                    .ThenInclude(c => c.Course)
                .Where(i => i.ID == id)
-               .Single();
+               .SingleAsync();
 
-            if (TryUpdateModel(instructorToUpdate, "",
-               new string[] { "LastName", "FirstMidName", "HireDate", "OfficeAssignment" }))
+            if (await TryUpdateModelAsync<Instructor>(instructorToUpdate, "",
+               i => i.LastName, i => i.FirstMidName, i => i.HireDate, i => i.OfficeAssignment))
             {
                 try
                 {
-                    if (String.IsNullOrWhiteSpace(instructorToUpdate.OfficeAssignment.Location))
+                    if (String.IsNullOrWhiteSpace(instructorToUpdate.OfficeAssignment?.Location))
                     {
                         instructorToUpdate.OfficeAssignment = null;
                     }
 
                     UpdateInstructorCourses(selectedCourses, instructorToUpdate);
 
-                    db.SaveChanges();
+                    await _db.SaveChangesAsync();
                     
                     // Send notification for instructor update
-                    SendEntityNotification("Instructor", instructorToUpdate.ID.ToString(), EntityOperation.UPDATE);
+                    await SendEntityNotificationAsync("Instructor", instructorToUpdate.ID.ToString(), EntityOperation.UPDATE);
 
                     return RedirectToAction("Index");
                 }
@@ -185,7 +196,7 @@ namespace ContosoUniversity.Controllers
             var selectedCoursesHS = new HashSet<string>(selectedCourses);
             var instructorCourses = new HashSet<int>
                 (instructorToUpdate.CourseAssignments.Select(c => c.Course.CourseID));
-            foreach (var course in db.Courses)
+            foreach (var course in _db.Courses)
             {
                 if (selectedCoursesHS.Contains(course.CourseID.ToString()))
                 {
@@ -200,23 +211,23 @@ namespace ContosoUniversity.Controllers
                     if (instructorCourses.Contains(course.CourseID))
                     {
                         CourseAssignment courseToRemove = instructorToUpdate.CourseAssignments.SingleOrDefault(i => i.CourseID == course.CourseID);
-                        db.Entry(courseToRemove).State = EntityState.Deleted;
+                        _db.Entry(courseToRemove).State = EntityState.Deleted;
                     }
                 }
             }
         }
 
         // GET: Instructors/Delete/5
-        public ActionResult Delete(int? id)
+        public async Task<IActionResult> Delete(int? id)
         {
             if (id == null)
             {
-                return new HttpStatusCodeResult(HttpStatusCode.BadRequest);
+                return BadRequest();
             }
-            Instructor instructor = db.Instructors.Find(id);
+            Instructor instructor = await _db.Instructors.FindAsync(id);
             if (instructor == null)
             {
-                return HttpNotFound();
+                return NotFound();
             }
             return View(instructor);
         }
@@ -224,27 +235,27 @@ namespace ContosoUniversity.Controllers
         // POST: Instructors/Delete/5 - Only admins can delete instructors
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
-        public ActionResult DeleteConfirmed(int id)
+        public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            Instructor instructor = db.Instructors
+            Instructor instructor = await _db.Instructors
               .Include(i => i.OfficeAssignment)
               .Where(i => i.ID == id)
-              .Single();
+              .SingleAsync();
 
-            db.Instructors.Remove(instructor);
+            _db.Instructors.Remove(instructor);
 
-            var department = db.Departments
+            var department = await _db.Departments
                 .Where(d => d.InstructorID == id)
-                .SingleOrDefault();
+                .SingleOrDefaultAsync();
             if (department != null)
             {
                 department.InstructorID = null;
             }
 
-            db.SaveChanges();
+            await _db.SaveChangesAsync();
             
             // Send notification for instructor deletion
-            SendEntityNotification("Instructor", id.ToString(), EntityOperation.DELETE);
+            await SendEntityNotificationAsync("Instructor", id.ToString(), EntityOperation.DELETE);
             
             return RedirectToAction("Index");
         }
@@ -253,7 +264,7 @@ namespace ContosoUniversity.Controllers
         {
             if (disposing)
             {
-                db.Dispose();
+                // Base class will dispose db and notificationService
             }
             base.Dispose(disposing);
         }

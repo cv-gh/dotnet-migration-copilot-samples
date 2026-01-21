@@ -1,22 +1,32 @@
 using System;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using System.Linq;
-using System.Net;
-using System.Web.Mvc;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.Extensions.Logging;
 using ContosoUniversity.Data;
 using ContosoUniversity.Models;
+using ContosoUniversity.Services;
 using System.Diagnostics;
 
 namespace ContosoUniversity.Controllers
 {
     public class StudentsController : BaseController
     {
-        // GET: Students - Admins and Teachers can view
-        public ActionResult Index(string sortOrder, string currentFilter, string searchString, int? page)
+        public StudentsController(
+            SchoolContext db,
+            INotificationService notificationService,
+            ILogger<StudentsController> logger)
+            : base(db, notificationService, logger)
         {
-            ViewBag.CurrentSort = sortOrder;
-            ViewBag.NameSortParm = String.IsNullOrEmpty(sortOrder) ? "name_desc" : "";
-            ViewBag.DateSortParm = sortOrder == "Date" ? "date_desc" : "Date";
+        }
+        // GET: Students - Admins and Teachers can view
+        public async Task<IActionResult> Index(string sortOrder, string currentFilter, string searchString, int? page)
+        {
+            ViewData["CurrentSort"] = sortOrder;
+            ViewData["NameSortParm"] = String.IsNullOrEmpty(sortOrder) ? "name_desc" : "";
+            ViewData["DateSortParm"] = sortOrder == "Date" ? "date_desc" : "Date";
 
             if (searchString != null)
             {
@@ -27,9 +37,9 @@ namespace ContosoUniversity.Controllers
                 searchString = currentFilter;
             }
 
-            ViewBag.CurrentFilter = searchString;
+            ViewData["CurrentFilter"] = searchString;
 
-            var students = from s in db.Students
+            var students = from s in _db.Students
                            select s;
             
             if (!String.IsNullOrEmpty(searchString))
@@ -56,29 +66,29 @@ namespace ContosoUniversity.Controllers
 
             int pageSize = 10;
             int pageNumber = (page ?? 1);
-            return View(PaginatedList<Student>.Create(students, pageNumber, pageSize));
+            return View(await PaginatedList<Student>.CreateAsync(students, pageNumber, pageSize));
         }
 
         // GET: Students/Details/5 - Admins and Teachers can view details
-        public ActionResult Details(int? id)
+        public async Task<IActionResult> Details(int? id)
         {
             if (id == null)
             {
-                return new HttpStatusCodeResult(HttpStatusCode.BadRequest);
+                return BadRequest();
             }
-            Student student = db.Students
+            Student student = await _db.Students
                 .Include(s => s.Enrollments)
                     .ThenInclude(e => e.Course)
-                .Where(s => s.ID == id).Single();
+                .Where(s => s.ID == id).SingleAsync();
             if (student == null)
             {
-                return HttpNotFound();
+                return NotFound();
             }
             return View(student);
         }
 
         // GET: Students/Create
-        public ActionResult Create()
+        public IActionResult Create()
         {
             var student = new Student
             {
@@ -90,7 +100,7 @@ namespace ContosoUniversity.Controllers
         // POST: Students/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public ActionResult Create([Bind(Include = "LastName,FirstMidName,EnrollmentDate")] Student student)
+        public async Task<IActionResult> Create([Bind("LastName,FirstMidName,EnrollmentDate")] Student student)
         {
             try
             {
@@ -108,12 +118,12 @@ namespace ContosoUniversity.Controllers
 
                 if (ModelState.IsValid)
                 {
-                    db.Students.Add(student);
-                    db.SaveChanges();
+                    _db.Students.Add(student);
+                    await _db.SaveChangesAsync();
                     
                     // Send notification for student creation
                     var studentName = $"{student.FirstMidName} {student.LastName}";
-                    SendEntityNotification("Student", student.ID.ToString(), studentName, EntityOperation.CREATE);
+                    await SendEntityNotificationAsync("Student", student.ID.ToString(), studentName, EntityOperation.CREATE);
                     
                     return RedirectToAction("Index");
                 }
@@ -127,16 +137,16 @@ namespace ContosoUniversity.Controllers
         }
 
         // GET: Students/Edit/5
-        public ActionResult Edit(int? id)
+        public async Task<IActionResult> Edit(int? id)
         {
             if (id == null)
             {
-                return new HttpStatusCodeResult(HttpStatusCode.BadRequest);
+                return BadRequest();
             }
-            Student student = db.Students.Find(id);
+            Student student = await _db.Students.FindAsync(id);
             if (student == null)
             {
-                return HttpNotFound();
+                return NotFound();
             }
             return View(student);
         }
@@ -144,7 +154,7 @@ namespace ContosoUniversity.Controllers
         // POST: Students/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public ActionResult Edit([Bind(Include = "ID,LastName,FirstMidName,EnrollmentDate")] Student student)
+        public async Task<IActionResult> Edit([Bind("ID,LastName,FirstMidName,EnrollmentDate")] Student student)
         {
             try
             {
@@ -162,12 +172,12 @@ namespace ContosoUniversity.Controllers
 
                 if (ModelState.IsValid)
                 {
-                    db.Entry(student).State = EntityState.Modified;
-                    db.SaveChanges();
+                    _db.Entry(student).State = EntityState.Modified;
+                    await _db.SaveChangesAsync();
                     
                     // Send notification for student update
                     var studentName = $"{student.FirstMidName} {student.LastName}";
-                    SendEntityNotification("Student", student.ID.ToString(), studentName, EntityOperation.UPDATE);
+                    await SendEntityNotificationAsync("Student", student.ID.ToString(), studentName, EntityOperation.UPDATE);
                     
                     return RedirectToAction("Index");
                 }
@@ -181,16 +191,16 @@ namespace ContosoUniversity.Controllers
         }
 
         // GET: Students/Delete/5
-        public ActionResult Delete(int? id)
+        public async Task<IActionResult> Delete(int? id)
         {
             if (id == null)
             {
-                return new HttpStatusCodeResult(HttpStatusCode.BadRequest);
+                return BadRequest();
             }
-            Student student = db.Students.Find(id);
+            Student student = await _db.Students.FindAsync(id);
             if (student == null)
             {
-                return HttpNotFound();
+                return NotFound();
             }
             return View(student);
         }
@@ -198,17 +208,17 @@ namespace ContosoUniversity.Controllers
         // POST: Students/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
-        public ActionResult DeleteConfirmed(int id)
+        public async Task<IActionResult> DeleteConfirmed(int id)
         {
             try
             {
-                Student student = db.Students.Find(id);
+                Student student = await _db.Students.FindAsync(id);
                 var studentName = $"{student.FirstMidName} {student.LastName}";
-                db.Students.Remove(student);
-                db.SaveChanges();
+                _db.Students.Remove(student);
+                await _db.SaveChangesAsync();
                 
                 // Send notification for student deletion
-                SendEntityNotification("Student", id.ToString(), studentName, EntityOperation.DELETE);
+                await SendEntityNotificationAsync("Student", id.ToString(), studentName, EntityOperation.DELETE);
                 
                 return RedirectToAction("Index");
             }
